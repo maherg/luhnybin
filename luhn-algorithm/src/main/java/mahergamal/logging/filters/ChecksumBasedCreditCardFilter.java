@@ -32,7 +32,7 @@ public class ChecksumBasedCreditCardFilter implements Runnable {
     private OutputStreamWriter writer;
     private Class<? extends Checksum> checksumClass;
     
-    Pattern sequencePattern = Pattern.compile("(\\d)(?=(\\d{13,15}))");
+    Pattern sequencePattern = Pattern.compile("(\\d{14,16}|\\d{4}[-\\s]\\d{4}[-\\s]\\d{4}[-\\s]\\d{4})");
     
     public ChecksumBasedCreditCardFilter(InputStream inputStream, OutputStream outputStream,
             Class<? extends Checksum> checksumClass) {
@@ -49,7 +49,7 @@ public class ChecksumBasedCreditCardFilter implements Runnable {
             while ((currentLine = reader.readLine()) != null) {
                 log.debug("==== Line {} ====", lineCounter++);
                 filterAnyPossibleCreditCards(currentLine);
-                
+                writeToOutputStream("\n");
             }
         } catch (IOException e) {
             log.error(e.getMessage(), e);
@@ -68,35 +68,43 @@ public class ChecksumBasedCreditCardFilter implements Runnable {
     }
     
     private void filterAnyPossibleCreditCards(String input) throws IOException {
-        log.debug("Processing {} chars : {}", input.length(), input);
+        log.debug("Read  {} chars : '{}'", input.length(), input);
+        
         Matcher sequenceMatcher = sequencePattern.matcher(input);
-        int filterIndex = -1;
+        int filterIndex = 0;
         int endIndex = input.length();
-        if (sequenceMatcher.matches()) {
-            log.debug("Found {} possible matches", sequenceMatcher.groupCount());
-            for (int i = 1; i <= sequenceMatcher.groupCount(); i++) {
-                String matchedText = sequenceMatcher.group(i);
-                int matchStartIndex = sequenceMatcher.start(i);
-                int matchEndIndex = matchStartIndex + sequenceMatcher.end(i);
-                
-                log.debug("Possible match : {} ({},{})", new Object[] { matchedText, matchStartIndex, matchEndIndex });
-                
-                if ((filterIndex + 1) < matchStartIndex) {
-                    writeToOutputStream(input.substring(filterIndex + 1, matchStartIndex));
-                }
-                
-                Checksum checksum = ChecksumFactory.instantiate(checksumClass, matchedText);
-                if (checksum.isValid()) {
-                    writeToOutputStream(mask(matchedText));
-                } else {
-                    writeToOutputStream(matchedText);
-                }
-                
-                filterIndex = matchEndIndex;
+        
+        while (sequenceMatcher.find()) {
+            int groupIndex = sequenceMatcher.groupCount();
+            String matchedText = sequenceMatcher.group(groupIndex);
+            int matchStartIndex = sequenceMatcher.start(groupIndex);
+            int matchEndIndex = matchStartIndex + sequenceMatcher.end(groupIndex);
+            
+            log.debug("Filter index : {}", filterIndex);
+            
+            log.debug("Match {} chars : '{}' (start = {}, end = {})", new Object[] { matchedText.length(), matchedText,
+                    matchStartIndex, matchEndIndex });
+            
+            if (filterIndex < matchStartIndex) {
+                log.debug("Writing unmatched text from {} to {}", filterIndex, matchStartIndex - 1);
+                writeToOutputStream(input.substring(filterIndex, matchStartIndex));
             }
+            
+            Checksum checksum = ChecksumFactory.instantiate(checksumClass, matchedText);
+            if (checksum.isValid()) {
+                log.debug("Writing masked text...");
+                writeToOutputStream(mask(matchedText));
+            } else {
+                log.debug("Writing plain text...");
+                writeToOutputStream(matchedText);
+            }
+            
+            filterIndex = matchEndIndex;
+            
         }
+        
         if (filterIndex < endIndex) {
-            String remainingInputString = input.substring(filterIndex + 1, endIndex);
+            String remainingInputString = input.substring(filterIndex, endIndex);
             writeToOutputStream(remainingInputString);
         }
     }
@@ -107,8 +115,7 @@ public class ChecksumBasedCreditCardFilter implements Runnable {
     
     private void writeToOutputStream(String text) throws IOException {
         writer.write(text);
-        writer.write("\n");
-        log.debug("Wrote : {}", text);
+        log.debug("Wrote {} chars : '{}'", text.length(), text.replace("\n", "\\n"));
     }
     
     public static void main(String[] args) throws IOException {
