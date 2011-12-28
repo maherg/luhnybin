@@ -6,6 +6,8 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -32,7 +34,8 @@ public class ChecksumBasedCreditCardFilter implements Runnable {
     private OutputStreamWriter writer;
     private Class<? extends Checksum> checksumClass;
     
-    Pattern sequencePattern = Pattern.compile("(\\d{14,16}|\\d{4}[-\\s]\\d{4}[-\\s]\\d{4}[-\\s]\\d{4})");
+    Pattern[] sequencePatterns = new Pattern[] { Pattern.compile("(?=(\\d{14}))"), Pattern.compile("(?=(\\d{15}))"),
+            Pattern.compile("(?=(\\d{16}))"), Pattern.compile("(?=(\\d{4}[-\\s]\\d{4}[-\\s]\\d{4}[-\\s]\\d{4}))") };
     
     public ChecksumBasedCreditCardFilter(InputStream inputStream, OutputStream outputStream,
             Class<? extends Checksum> checksumClass) {
@@ -48,7 +51,8 @@ public class ChecksumBasedCreditCardFilter implements Runnable {
             int lineCounter = 1;
             while ((currentLine = reader.readLine()) != null) {
                 log.debug("==== Line {} ====", lineCounter++);
-                filterAnyPossibleCreditCards(currentLine);
+                String filteredOutput = filterOutPotentialCreditCards(currentLine);
+                writeToOutputStream(filteredOutput);
                 writeToOutputStream("\n");
             }
         } catch (IOException e) {
@@ -67,50 +71,42 @@ public class ChecksumBasedCreditCardFilter implements Runnable {
         }
     }
     
-    private void filterAnyPossibleCreditCards(String input) throws IOException {
+    private String filterOutPotentialCreditCards(String input) {
         log.debug("Read  {} chars : '{}'", input.length(), input);
-        
-        Matcher sequenceMatcher = sequencePattern.matcher(input);
-        int filterIndex = 0;
-        int endIndex = input.length();
-        
-        while (sequenceMatcher.find()) {
-            int groupIndex = sequenceMatcher.groupCount();
-            String matchedText = sequenceMatcher.group(groupIndex);
-            int matchStartIndex = sequenceMatcher.start(groupIndex);
-            int matchEndIndex = matchStartIndex + sequenceMatcher.end(groupIndex);
-            
-            log.debug("Filter index : {}", filterIndex);
-            
-            log.debug("Match {} chars : '{}' (start = {}, end = {})", new Object[] { matchedText.length(), matchedText,
-                    matchStartIndex, matchEndIndex });
-            
-            if (filterIndex < matchStartIndex) {
-                log.debug("Writing unmatched text from {} to {}", filterIndex, matchStartIndex - 1);
-                writeToOutputStream(input.substring(filterIndex, matchStartIndex));
-            }
-            
-            Checksum checksum = ChecksumFactory.instantiate(checksumClass, matchedText);
-            if (checksum.isValid()) {
-                log.debug("Writing masked text...");
-                writeToOutputStream(mask(matchedText));
-            } else {
-                log.debug("Writing plain text...");
-                writeToOutputStream(matchedText);
-            }
-            
-            filterIndex = matchEndIndex;
-            
-        }
-        
-        if (filterIndex < endIndex) {
-            String remainingInputString = input.substring(filterIndex, endIndex);
-            writeToOutputStream(remainingInputString);
-        }
+        List<MatchedCreditCard> creditCards = findMatchingCreditCards(input);
+        return maskMatchedCreditCards(input, creditCards);
     }
     
-    private String mask(String input) {
-        return input.replaceAll("\\d", MASK_CHARACTER);
+    private List<MatchedCreditCard> findMatchingCreditCards(String input) {
+        List<MatchedCreditCard> creditCards = new ArrayList<MatchedCreditCard>();
+        for (Pattern sequencePattern : sequencePatterns) {
+            Matcher sequenceMatcher = sequencePattern.matcher(input);
+            while (sequenceMatcher.find()) {
+                int groupIndex = sequenceMatcher.groupCount();
+                String matchedText = sequenceMatcher.group(groupIndex);
+                int matchStartIndex = sequenceMatcher.start(groupIndex);
+                int matchEndIndex = sequenceMatcher.end(groupIndex);
+                
+                log.debug("Match {} chars : '{}' (start = {}, end = {})", new Object[] { matchedText.length(),
+                        matchedText, matchStartIndex, matchEndIndex });
+                
+                Checksum checksum = ChecksumFactory.instantiate(checksumClass, matchedText);
+                if (checksum.isValid()) {
+                    MatchedCreditCard creditCard = new MatchedCreditCard(matchedText, matchStartIndex, matchEndIndex);
+                    creditCards.add(creditCard);
+                }
+            }
+        }
+        
+        return creditCards;
+    }
+    
+    private String maskMatchedCreditCards(String input, List<MatchedCreditCard> creditCards) {
+        StringBuilder output = new StringBuilder(input);
+        for (MatchedCreditCard creditCard : creditCards) {
+            creditCard.maskTheInputAccordingly(output);
+        }
+        return output.toString();
     }
     
     private void writeToOutputStream(String text) throws IOException {
@@ -122,4 +118,27 @@ public class ChecksumBasedCreditCardFilter implements Runnable {
         new ChecksumBasedCreditCardFilter(System.in, System.out, LuhnChecksum.class).run();
     }
     
+    private class MatchedCreditCard {
+        
+        private String text;
+        private int start;
+        private int end;
+        
+        public MatchedCreditCard(String text, int start, int end) {
+            this.text = text;
+            this.start = start;
+            this.end = end;
+        }
+        
+        @Override
+        public String toString() {
+            return this.text.replaceAll("\\d", MASK_CHARACTER);
+        }
+        
+        public void maskTheInputAccordingly(StringBuilder input) {
+            log.debug("Masked credit card : '{}' (start = {}, end = {})", new Object[] { text, start, end });
+            input.replace(start, end, this.toString());
+        }
+        
+    }
 }
