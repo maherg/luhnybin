@@ -47,6 +47,7 @@ public class ChecksumBasedCreditCardFilter implements Runnable {
     @Override
     public void run() {
         try {
+            long startTimestamp = System.currentTimeMillis();
             String currentLine = null;
             int lineCounter = 1;
             while ((currentLine = reader.readLine()) != null) {
@@ -55,6 +56,7 @@ public class ChecksumBasedCreditCardFilter implements Runnable {
                 writeToOutputStream(filteredOutput);
                 writeToOutputStream("\n");
             }
+            log.info("Credit card filter took : {} ms", System.currentTimeMillis() - startTimestamp);
         } catch (IOException e) {
             log.error(e.getMessage(), e);
         } finally {
