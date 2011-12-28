@@ -1,3 +1,3 @@
 #!/bin/sh
 
-mvn -q -f luhn-algorithm/pom.xml clean compile exec:java -Dexec.mainClass=mahergamal.logging.filters.ChecksumBasedCreditCardFilter
+mvn -q -f creditcard-filter/pom.xml clean compile exec:java -Dexec.mainClass=mahergamal.logging.filters.ChecksumBasedCreditCardFilter
