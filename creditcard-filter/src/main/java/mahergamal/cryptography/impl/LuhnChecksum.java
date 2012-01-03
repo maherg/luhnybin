@@ -6,7 +6,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * The implementation of Peter Hans Luhn's checksum algorithm.
+ * The implementation of Hans Peter Luhn's checksum algorithm.
  * 
  * @see http://en.wikipedia.org/wiki/Luhn_algorithm
  * @author Maher Gamal
